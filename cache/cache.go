@@ -1,7 +1,7 @@
 package cache
 
 import (
-	"cache/lru"
+	"test/cache/lru"
 	"errors"
 	"sync"
 )
@@ -68,9 +68,9 @@ func (f GetterFunc) Get(key string) ([]byte, error){
  * 主要是提供和外部进行交付的方法：Get
  */
 type Group struct {
-	name string
+	name   string
 	getter Getter
-	cache cache
+	cache  cache
 }
 
 /**

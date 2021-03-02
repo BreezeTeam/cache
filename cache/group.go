@@ -16,7 +16,7 @@ var(
  * @param getter
  * @return *Group
  */
-func NewGroup(name string,maxBytes int64,getter Getter)  *Group{
+func NewGroup(name string,maxBytes int64,getter Getter)  *Group {
 	if getter == nil{
 		panic("Group Getter cannot be nil")
 	}
@@ -24,9 +24,9 @@ func NewGroup(name string,maxBytes int64,getter Getter)  *Group{
 	rwm.Lock()
 	defer rwm.Unlock()
 	g:=&Group{
-		name:name,
-		getter:getter,
-		cache:cache{maxBytes:maxBytes},
+		name:   name,
+		getter: getter,
+		cache:  cache{maxBytes: maxBytes},
 	}
 	groups[name]=g
 	return g
@@ -37,10 +37,10 @@ func NewGroup(name string,maxBytes int64,getter Getter)  *Group{
  * @param name
  * @return *Group
  */
-func GetGroup(name string) *Group{
+func GetGroup(name string) *Group {
 	//共享锁，防止读取到脏的数据
 	rwm.RLock()
 	defer rwm.RUnlock()
-	g:=groups[name]
+	g:= groups[name]
 	return g
 }

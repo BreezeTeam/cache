@@ -1,12 +1,21 @@
 package cache
 
 /**
+ * @Description: 实现了View接口的缓存结构体
+ */
+
+/**
  * @Description: 只读数据结构
  */
 type ByteView struct{
 	value []byte
 }
 
+/**
+ * @Description: 将ByteView 实现为 View
+ * @receiver v ByteView
+ * @return int
+ */
 func (v ByteView) Len() int{
 	return len(v.value)
 }

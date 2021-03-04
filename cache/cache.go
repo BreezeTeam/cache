@@ -1,10 +1,144 @@
 package cache
 
 import (
-	"test/cache/lru"
 	"errors"
+	"log"
 	"sync"
+	"test/cache/lru"
 )
+
+/**
+ * @Description: 提供了将lru包装为group对象的能力
+ */
+
+//Getter interface
+type Getter interface {
+	Get(key string) ([]byte, error)
+}
+
+/**
+ * @Description: a Getter impl with a func type,主要目的是为了将函数转为Getter 接口,方便调用
+ * @param key
+ * @return []byte
+ * @return error
+ */
+type GetterFunc func(key string) ([]byte, error)
+//Getter interface impl with GetterFunc
+func (f GetterFunc) Get(key string) ([]byte, error){
+	return f(key)
+}
+
+
+/**
+ * @Description: GroupCache,控制缓存的存储和 单机|分布式情况下的缓存存取服务
+ * 主要是提供和外部进行交付的方法：Get
+ */
+type Group struct {
+	name   string
+	/**
+     * @Description: getter是一个Getter接口,必须实现Get方法
+     */
+	getter Getter
+	cache  cache
+
+	/**
+     * @Description: 一个Group,具有一个NodePicker,能够根据传的key,以及节点客户端得到响应的节点
+     */
+	nodePicker NodePicker
+}
+
+/**
+ * @Description: 注册节点选择器
+ * @receiver g
+ * @param nodePicker
+ */
+func (g *Group) Register(nodePicker NodePicker)  {
+	/**
+	 * @Description: 只能注册一次
+	 */
+	if g.nodePicker !=nil{
+		panic("RegisterNodePicker called more than once")
+	}
+	g.nodePicker = nodePicker
+}
+
+/**
+ * @Description: 会利用getter,调用这个接口的Get函数来获取缓存,如果不存在,缓存失效,需要加载缓存
+ * @param key
+ * @return ByteView
+ * @return error
+ */
+func (g *Group) Get(key string) (ByteView, error)  {
+	if key == "" {
+		return ByteView{},errors.New("key is required")
+	}
+	//从cache中查找缓存，存在则返回缓存值
+	if v,ok :=g.cache.get(key);ok{
+		return v,nil
+	}
+	//不存在就load缓存值
+	return g.load(key)
+}
+
+
+/**
+ * @Description: 缓存失效时调用,单机场景下调用getLocally，远程场景调用getFromPeer从其他节点获取数据
+ * @receiver g
+ * @param key
+ * @return value
+ * @return error
+ */
+func (g *Group) load(key string) (value ByteView,err error) {
+	if g.nodePicker !=nil {
+		if nodeClient,ok := g.nodePicker.PickNode(key);ok{
+			if value,err=g.getRemote(nodeClient,key);err == nil{
+				return value,nil
+			}
+			log.Println("[Cache] Faild to get remote from nodeClient",err)
+		}
+	}
+	//单机场景
+	return g.getLocally(key)
+}
+
+/**
+ * @Description: 通过nodeClient,能够根据group的名字和具体的key,查询到具体的缓存数据
+ * @receiver g
+ * @param nodeClient
+ * @param key
+ * @return ByteView
+ * @return error
+ */
+func (g *Group) getRemote(nodeClient NodeClient,key string)(ByteView,error)  {
+	bytes,err :=nodeClient.Get(g.name,key)
+	if err != nil {
+		return ByteView{},err
+	}
+	return ByteView{value:bytes},nil
+}
+
+
+/**
+ * @Description: 单机场景下的获取源数据的方法
+ * @receiver g
+ * @param key
+ * @return ByteView
+ * @return error
+ */
+func (g *Group) getLocally(key string) (ByteView, error) {
+	//调用用户回调函数 g.getter.Get(key)，获取源数据
+	bytes,err := g.getter.Get(key)
+	if err != nil{
+		return ByteView{},err
+	}
+	//将源数据包装为ByteView类型，然后保存
+	value := ByteView{value: cloneBytes(bytes)}
+	g.cache.add(key,value)
+	return value,nil
+}
+
+
+
 
 
 /**
@@ -49,76 +183,4 @@ func (c *cache)get(key string)(value ByteView,ok bool) {
 	}
 	return
 }
-
-
-//Getter interface
-type Getter interface {
-	Get(key string) ([]byte, error)
-}
-
-//a Getter impl with a func type
-type GetterFunc func(key string) ([]byte, error)
-//Getter interface impl with GetterFunc
-func (f GetterFunc) Get(key string) ([]byte, error){
-	return f(key)
-}
-
-/**
- * @Description: GroupCache,控制缓存的存储和单机，分布式情况下的缓存存取服务
- * 主要是提供和外部进行交付的方法：Get
- */
-type Group struct {
-	name   string
-	getter Getter
-	cache  cache
-}
-
-/**
- * @param key
- * @return ByteView
- * @return error
- */
-func (g *Group) Get(key string) (ByteView, error)  {
-	if key == "" {
-		return ByteView{},errors.New("key is required")
-	}
-	//从cache中查找缓存，存在则返回缓存值
-	if v,ok :=g.cache.get(key);ok{
-		return v,nil
-	}
-	//不存在就load缓存值
-	return g.load(key)
-}
-
-/**
- * @Description: 单机场景下调用getLocally，很不是场景调用getFromPeer从其他节点获取数据
- * @receiver g
- * @param key
- * @return value
- * @return error
- */
-func (g *Group) load(key string) (ByteView, error) {
-	//单机场景
-	return g.getLocally(key)
-}
-
-/**
- * @Description: 单机场景下的获取源数据的方法
- * @receiver g
- * @param key
- * @return ByteView
- * @return error
- */
-func (g *Group) getLocally(key string) (ByteView, error) {
-	//调用用户回调函数 g.getter.Get(key)，获取源数据
-	bytes,err := g.getter.Get(key)
-	if err != nil{
-		return ByteView{},err
-	}
-	//将源数据包装为ByteView类型，然后保存
-	value := ByteView{value: cloneBytes(bytes)}
-	g.cache.add(key,value)
-	return value,nil
-}
-
 

@@ -3,6 +3,10 @@ package cache
 import (
 	"sync"
 )
+/**
+ * @Description: 通过全局变量groups,进行group的创建,管理等操作,直接面向用户
+ * @return unc
+ */
 
 var(
 	rwm sync.RWMutex //读写锁

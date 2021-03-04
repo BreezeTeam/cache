@@ -53,6 +53,12 @@ func (c *ConsistentHash ) Add(nodeNames ...string)  {
 	sort.Ints(c.keys)
 }
 
+/**
+ * @Description: 根据key,从一致性hash算法中的环上得到虚拟节点,又映射到真实节点
+ * @receiver c
+ * @param key
+ * @return string
+ */
 func (c *ConsistentHash)Get(key string) string{
 	if len(c.keys)==0{
 		return ""

@@ -5,6 +5,7 @@ import (
 	"log"
 	"sync"
 	"test/cache/lru"
+	"test/cache/singleflight"
 )
 
 /**
@@ -45,6 +46,11 @@ type Group struct {
      * @Description: 一个Group,具有一个NodePicker,能够根据传的key,以及节点客户端得到响应的节点
      */
 	nodePicker NodePicker
+
+	/**
+     * @Description: 使用singleflight来防止缓存击穿
+     */
+	loader *singleflight.Group
 }
 
 /**
@@ -89,16 +95,23 @@ func (g *Group) Get(key string) (ByteView, error)  {
  * @return error
  */
 func (g *Group) load(key string) (value ByteView,err error) {
-	if g.nodePicker !=nil {
-		if nodeClient,ok := g.nodePicker.PickNode(key);ok{
-			if value,err=g.getRemote(nodeClient,key);err == nil{
-				return value,nil
+	view,err :=g.loader.Do(key, func() (interface{}, error) {
+		//remote调用
+		if g.nodePicker !=nil {
+			if nodeClient,ok := g.nodePicker.PickNode(key);ok{
+				if value,err=g.getRemote(nodeClient,key);err == nil{
+					return value,nil
+				}
+				log.Println("[Cache] Faild to get remote from nodeClient",err)
 			}
-			log.Println("[Cache] Faild to get remote from nodeClient",err)
 		}
+		//单机场景
+		return g.getLocally(key)
+	})
+	if err != nil {
+		return view.(ByteView),nil
 	}
-	//单机场景
-	return g.getLocally(key)
+	return
 }
 
 /**

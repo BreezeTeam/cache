@@ -2,6 +2,7 @@ package cache
 
 import (
 	"sync"
+	"test/cache/singleflight"
 )
 /**
  * @Description: 通过全局变量groups,进行group的创建,管理等操作,直接面向用户
@@ -31,6 +32,7 @@ func NewGroup(name string,maxBytes int64,getter Getter)  *Group {
 		name:   name,
 		getter: getter,
 		cache:  cache{maxBytes: maxBytes},
+		loader: &singleflight.Group{},
 	}
 	groups[name]=g
 	return g

@@ -32,6 +32,7 @@ func NewGroup(name string,maxBytes int64,getter Getter)  *Group {
 		name:   name,
 		getter: getter,
 		cache:  cache{maxBytes: maxBytes},
+		remoteCache: cache{maxBytes: maxBytes},
 		loader: &singleflight.Group{},
 	}
 	groups[name]=g

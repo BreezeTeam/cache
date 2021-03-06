@@ -27,6 +27,8 @@ type GroupHTTP struct {
 	mu sync.Mutex
 	nodes *consistenthash.ConsistentHash
 	NodeClientMap map[string]*httpClient
+	//noneFilter *bloom.BloomFilter
+	//valueFilter *bloom.BloomFilter
 }
 /**
  * @Description: 构造函数
@@ -49,6 +51,10 @@ func NewGroupHTTP(addr string)*GroupHTTP  {
 func (g *GroupHTTP) Set(nodeNames ...string)  {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	//初始化布隆过滤器
+	//g.noneFilter = bloom.NewBloomFilter(uint(16<<20), 5)
+	//g.valueFilter = bloom.NewBloomFilter(uint(16<<20), 5)
 
 	//使用默认的hash函数
 	g.nodes = consistenthash.New(defaultNodeVirReplicas,nil)
@@ -117,6 +123,11 @@ func (g *GroupHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request)  {
 		http.Error(w,err.Error(),http.StatusInternalServerError)
 		return
 	}
+
+	//if view.Len() >0{
+	//	g.noneFilter.PutString(key)
+	//}
+	//g.Log("%s %s",key,view.value[:],g.bloomFilter.HasString(key))
 
 	//write view copy to http.request
 	w.Header().Set("Content-Type","application/octet-stream")

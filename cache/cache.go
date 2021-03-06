@@ -3,9 +3,12 @@ package cache
 import (
 	"errors"
 	"log"
+	"math/rand"
 	"sync"
+	"sync/atomic"
 	"test/cache/lru"
 	"test/cache/singleflight"
+	"time"
 )
 
 /**
@@ -28,6 +31,22 @@ type GetterFunc func(key string) ([]byte, error)
 func (f GetterFunc) Get(key string) ([]byte, error){
 	return f(key)
 }
+/**
+ * @Description: 原子加
+ * @param l
+ * @param r
+ */
+func atomic_plus(l *uint32, r uint32) {
+	atomic.AddUint32(l, r)
+}
+
+/**
+ * @Description: 远程请求节点状态
+ */
+type keyStatus struct {
+	firstGetTime time.Time //第一次请求的时间
+	remoteCnt  uint32 //请求次数
+}
 
 
 /**
@@ -40,7 +59,7 @@ type Group struct {
      * @Description: getter是一个Getter接口,必须实现Get方法
      */
 	getter Getter
-	cache  cache
+	cache  cache //主要的缓存
 
 	/**
      * @Description: 一个Group,具有一个NodePicker,能够根据传的key,以及节点客户端得到响应的节点
@@ -51,7 +70,16 @@ type Group struct {
      * @Description: 使用singleflight来防止缓存击穿
      */
 	loader *singleflight.Group
+
+	/**
+     * @Description: 热点互备功能
+     */
+	remoteCache cache //随机缓存远程调用的结果
+	//hotCache cache //热点缓存
+	keyStatusMap map[string]*keyStatus
 }
+
+
 
 /**
  * @Description: 注册节点选择器
@@ -82,6 +110,14 @@ func (g *Group) Get(key string) (ByteView, error)  {
 	if v,ok :=g.cache.get(key);ok{
 		return v,nil
 	}
+	//从remoteCache中查找数据,存在则返回缓存值
+	if v,ok:=g.remoteCache.get(key);ok{
+		return v,nil
+	}
+	//从hotCache中查找数据,存在则返回缓存值
+	//if v,ok:=g.hotCache.get(key);ok{
+	//	return v,nil
+	//}
 	//不存在就load缓存值
 	return g.load(key)
 }
@@ -127,7 +163,12 @@ func (g *Group) getRemote(nodeClient NodeClient,key string)(ByteView,error)  {
 	if err != nil {
 		return ByteView{},err
 	}
-	return ByteView{value:bytes},nil
+	//将远程获取到的数据添加在remoteCache中
+	value := ByteView{value: cloneBytes(bytes)}
+	if rand.Intn(10) == 0{
+		g.remoteCache.add(key,value)
+	}
+	return value,nil
 }
 
 

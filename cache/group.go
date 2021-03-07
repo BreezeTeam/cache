@@ -2,7 +2,7 @@ package cache
 
 import (
 	"sync"
-	"test/cache/singleflight"
+	"cache/singleflight"
 )
 /**
  * @Description: 通过全局变量groups,进行group的创建,管理等操作,直接面向用户

@@ -354,6 +354,141 @@ func (h *httpClient)Get(group string,key string) ([]byte, error){
 	return bytes,nil
 }
 ```
+### 使用protobuf 来提高数据传输效率
+
+```protobuf
+//protoc --go_out=. *.proto
+syntax = "proto3";
+option go_package="./;cachepb";
+
+package cachepb;
+
+message Request {
+  string group = 1;
+  string key = 2;
+}
+
+message Response {
+  bytes value = 1;
+}
+
+service GroupCache {
+  rpc Get(Request) returns (Response);
+}
+```
+```go
+/**
+ * @Description: 通过nodeClient,能够根据group的名字和具体的key,查询到具体的缓存数据
+ * @receiver g
+ * @param nodeClient
+ * @param key
+ * @return ByteView
+ * @return error
+ */
+func (g *Group) getRemote(nodeClient NodeClient,key string)(ByteView,error)  {
+	req:=&pb.Request{
+		Group: g.name,
+		Key: key,
+	}
+	res:=&pb.Response{}
+
+
+	//bytes,err :=nodeClient.Get(g.name,key) //http 方式
+	if err:=nodeClient.Get(req,res);err != nil {
+		return ByteView{},err
+	}
+
+	//将远程获取到的数据添加在remoteCache中
+	value := ByteView{value: cloneBytes(res.Value)}
+	if rand.Intn(10) == 0{
+		g.remoteCache.add(key,value)
+	}
+	return value,nil
+}
+```
+
+GroupHttpServer and GroupHttpClient
+```go
+/**
+ * @Description: 将GroupHTTP 实现为Http Handler接口,能够提供HTTP服务
+ * @receiver g
+ * @param w
+ * @param r
+ */
+func (g *GroupHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request)  {
+	g.Log("%s %s",r.Method,r.URL.Path)
+	if !strings.HasPrefix(r.URL.Path, g.prefix){
+		http.Error(w,"Bad Request",http.StatusBadRequest)
+		return
+	}
+
+	//解析parts=>/<basepath>/<groupname>/<key>
+	parts := strings.SplitN(r.URL.Path[len(g.prefix):],"/",2)
+	if len(parts) != 2{
+		http.Error(w,"Bad Request",http.StatusBadRequest)
+		return
+	}
+	groupName:=parts[0]
+	key:=parts[1]
+
+	//find group by groupName
+	group := GetGroup(groupName)
+	if group ==nil{
+		http.Error(w,"no such group: "+groupName,http.StatusNotFound)
+		return
+	}
+
+	//get view by key from group
+	view,err:=group.Get(key)
+	if err!=nil{
+		http.Error(w,err.Error(),http.StatusInternalServerError)
+		return
+	}
+
+	body, err := proto.Marshal(&pb.Response{Value: view.Copy()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	//write view copy to http.request
+	w.Header().Set("Content-Type","application/octet-stream")
+	w.Write(body)
+}
+
+/**
+ * @Description: 通过HTTP协议访问节点的HTTPServer的节点客户端实现
+ * @receiver h
+ * @param group
+ * @param key
+ * @return []byte
+ * @return error
+ */
+func (h *httpClient)Get(in *pb.Request,out *pb.Response)error{
+	//包装Get请求
+	u:=fmt.Sprintf("%v%v/%v",h.baseURL,url.QueryEscape(in.GetGroup()),url.QueryEscape(in.GetKey()))
+	res,err := http.Get(u)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode!=http.StatusOK{
+		return fmt.Errorf("server returned:%v",res.Status)
+	}
+
+	bytes,err := ioutil.ReadAll(res.Body)//这里是空的
+
+	if err != nil {
+		return  fmt.Errorf("reading response body:%v",err)
+	}
+	if err = proto.Unmarshal(bytes,out);err != nil{
+		return fmt.Errorf("decoding response body: %v", err)
+	}
+
+	return nil
+}
+```
 
 ## 缓存击穿防护
 >**缓存击穿**：一个存在的key，在缓存过期的一刻，同时有大量的请求，这些请求都会击穿到 DB ，造成瞬时DB请求量大、压力骤增 

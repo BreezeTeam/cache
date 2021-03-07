@@ -1,14 +1,16 @@
 package cache
 
 import (
+	pb "cache/cachepb"
+	"cache/consistenthash"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
-	"test/cache/consistenthash"
 )
 /**
  * @Description: 基于 http 的缓存服务器
@@ -124,14 +126,15 @@ func (g *GroupHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request)  {
 		return
 	}
 
-	//if view.Len() >0{
-	//	g.noneFilter.PutString(key)
-	//}
-	//g.Log("%s %s",key,view.value[:],g.bloomFilter.HasString(key))
+	body, err := proto.Marshal(&pb.Response{Value: view.Copy()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	//write view copy to http.request
 	w.Header().Set("Content-Type","application/octet-stream")
-	w.Write(view.Copy())
+	w.Write(body)
 }
 
 
@@ -163,23 +166,27 @@ type httpClient struct {
  * @return []byte
  * @return error
  */
-func (h *httpClient)Get(group string,key string) ([]byte, error){
+func (h *httpClient)Get(in *pb.Request,out *pb.Response)error{
 	//包装Get请求
-	u:=fmt.Sprintf("%v%v/%v",h.baseURL,url.QueryEscape(group),url.QueryEscape(key))
+	u:=fmt.Sprintf("%v%v/%v",h.baseURL,url.QueryEscape(in.GetGroup()),url.QueryEscape(in.GetKey()))
 	res,err := http.Get(u)
 	if err != nil {
-		return nil,err
+		return err
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode!=http.StatusOK{
-		return nil, fmt.Errorf("server returned:%v",res.Status)
+		return fmt.Errorf("server returned:%v",res.Status)
 	}
 
-	bytes,err := ioutil.ReadAll(res.Body)
+	bytes,err := ioutil.ReadAll(res.Body)//这里是空的
+
 	if err != nil {
-		return nil, fmt.Errorf("reading response body:%v",err)
+		return  fmt.Errorf("reading response body:%v",err)
+	}
+	if err = proto.Unmarshal(bytes,out);err != nil{
+		return fmt.Errorf("decoding response body: %v", err)
 	}
 
-	return bytes,nil
+	return nil
 }

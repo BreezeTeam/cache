@@ -6,8 +6,9 @@ import (
 	"math/rand"
 	"sync"
 	"sync/atomic"
-	"test/cache/lru"
-	"test/cache/singleflight"
+	pb "cache/cachepb"
+	"cache/lru"
+	"cache/singleflight"
 	"time"
 )
 
@@ -132,6 +133,7 @@ func (g *Group) Get(key string) (ByteView, error)  {
  */
 func (g *Group) load(key string) (value ByteView,err error) {
 	view,err :=g.loader.Do(key, func() (interface{}, error) {
+
 		//remote调用
 		if g.nodePicker !=nil {
 			if nodeClient,ok := g.nodePicker.PickNode(key);ok{
@@ -144,7 +146,7 @@ func (g *Group) load(key string) (value ByteView,err error) {
 		//单机场景
 		return g.getLocally(key)
 	})
-	if err != nil {
+	if err == nil {
 		return view.(ByteView),nil
 	}
 	return
@@ -159,12 +161,20 @@ func (g *Group) load(key string) (value ByteView,err error) {
  * @return error
  */
 func (g *Group) getRemote(nodeClient NodeClient,key string)(ByteView,error)  {
-	bytes,err :=nodeClient.Get(g.name,key)
-	if err != nil {
+	req:=&pb.Request{
+		Group: g.name,
+		Key: key,
+	}
+	res:=&pb.Response{}
+
+
+	//bytes,err :=nodeClient.Get(g.name,key) //http 方式
+	if err:=nodeClient.Get(req,res);err != nil {
 		return ByteView{},err
 	}
+
 	//将远程获取到的数据添加在remoteCache中
-	value := ByteView{value: cloneBytes(bytes)}
+	value := ByteView{value: cloneBytes(res.Value)}
 	if rand.Intn(10) == 0{
 		g.remoteCache.add(key,value)
 	}
